@@ -1,11 +1,16 @@
 "use client";
 
-import { Authenticated, ConvexReactClient } from "convex/react";
+import {
+  Authenticated,
+  AuthLoading,
+  ConvexReactClient,
+  Unauthenticated,
+} from "convex/react";
 import { ClerkProvider, useAuth } from "@clerk/nextjs";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { dark } from "@clerk/themes";
-// import { UnauthenticatedView } from "@/features/auth/components/unauthenticated-view";
-// import { AuthLoadingView } from "@/features/auth/components/auth-loading-view";
+import { UnauthenticatedView } from "@/features/auth/components/unauthenticated-view";
+import { AuthLoadingView } from "@/features/auth/components/auth-loading-view";
 
 import { ThemeProvider } from "./theme-provider";
 
@@ -22,12 +27,12 @@ export const Providers = ({ children }: { children: React.ReactNode }) => {
           disableTransitionOnChange
         >
           <Authenticated>{children}</Authenticated>
-          {/* <Unauthenticated>
+          <Unauthenticated>
             <UnauthenticatedView />
           </Unauthenticated>
           <AuthLoading>
             <AuthLoadingView />
-          </AuthLoading> */}
+          </AuthLoading>
         </ThemeProvider>
       </ConvexProviderWithClerk>
     </ClerkProvider>
