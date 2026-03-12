@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { Allotment } from "allotment";
-import { FaGithub } from "react-icons/fa";
-
 import { cn } from "@/lib/utils";
 import { Id } from "@/convex/_generated/dataModel";
 import { FileExplorer } from "../components/file-explorer";
+import { ExportPopover } from "../components/export-popover";
+import { EditorView } from "@/features/editor/ui/views/editor-view";
+import { PreviewView } from "./preview-view";
 
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 800;
@@ -52,7 +53,7 @@ export const ProjectIdView = ({ projectId }: { projectId: Id<"projects"> }) => {
           onClick={() => setActiveView("preview")}
         />
         <div className="flex-1 flex justify-end h-full">
-          {/* <ExportPopover projectId={projectId} /> */}
+          <ExportPopover projectId={projectId} />
         </div>
       </nav>
       <div className="flex-1 relative">
@@ -72,8 +73,7 @@ export const ProjectIdView = ({ projectId }: { projectId: Id<"projects"> }) => {
               <FileExplorer projectId={projectId} />
             </Allotment.Pane>
             <Allotment.Pane>
-              <></>
-              {/* <EditorView projectId={projectId} /> */}
+              <EditorView projectId={projectId} />
             </Allotment.Pane>
           </Allotment>
         </div>
@@ -83,7 +83,7 @@ export const ProjectIdView = ({ projectId }: { projectId: Id<"projects"> }) => {
             activeView === "preview" ? "visible" : "invisible",
           )}
         >
-          {/* <PreviewView projectId={projectId} /> */}
+          <PreviewView projectId={projectId} />
         </div>
       </div>
     </div>
