@@ -23,8 +23,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import { Id } from "../../../../convex/_generated/dataModel";
 import { useProject, useRenameProject } from "../../hooks/use-projects";
+import { toast } from "sonner";
+import { Id } from "@/convex/_generated/dataModel";
 
 export const Navbar = ({ projectId }: { projectId: Id<"projects"> }) => {
   const project = useProject(projectId);
@@ -46,7 +47,11 @@ export const Navbar = ({ projectId }: { projectId: Id<"projects"> }) => {
     const trimmedName = name.trim();
     if (!trimmedName || trimmedName === project.name) return;
 
-    renameProject({ id: projectId, name: trimmedName });
+    try {
+      renameProject({ id: projectId, name: trimmedName });
+    } catch (error) {
+      toast.error((error as Error).message || "Could not rename project");
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
