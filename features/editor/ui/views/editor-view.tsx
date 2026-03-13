@@ -51,6 +51,7 @@ export const EditorView = ({ projectId }: { projectId: Id<"projects"> }) => {
         {isActiveFileText && (
           <CodeEditor
             key={activeFile._id}
+            fileId={activeFile._id}
             fileName={activeFile.name}
             initialValue={activeFile.content}
             onChange={(content: string) => {

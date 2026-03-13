@@ -14,6 +14,7 @@ import { selectionTooltip } from "../../extensions/selection-tooltip";
 
 interface Props {
   fileName: string;
+  fileId: string;
   initialValue?: string;
   onChange: (value: string) => void;
 }
@@ -22,6 +23,7 @@ export const CodeEditor = ({
   fileName,
   initialValue = "",
   onChange,
+  fileId,
 }: Props) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -43,7 +45,7 @@ export const CodeEditor = ({
         languageExtension,
         suggestion(fileName),
         quickEdit(fileName),
-        selectionTooltip(),
+        selectionTooltip(fileName, fileId),
         keymap.of([indentWithTab]),
         minimap(),
         indentationMarkers(),
