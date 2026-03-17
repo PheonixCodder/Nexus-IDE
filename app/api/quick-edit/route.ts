@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     const { selectedCode, fullCode, instruction } = await request.json();
 
     if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 400 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
     if (!selectedCode) {
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const urls: string[] = instruction.match(URL_REGEX) || [];
+    const urls: string[] = (instruction.match(URL_REGEX) || []).slice(0, 3);
     let documentationContext = "";
 
     if (urls.length > 0) {
@@ -99,11 +99,11 @@ export async function POST(request: Request) {
     const { output } = await generateText({
       model: openrouter("stepfun/step-3.5-flash:free"),
       output: Output.json(),
-      prompt: `${prompt}\n\nRespond strictly with a JSON object: {"suggestion": "string"}`,
+      prompt: `${prompt}\n\nRespond strictly with a JSON object: {"editedCode": "string"}`,
     });
     console.log("Raw Model Output:", output); // Debugging: See what it actually sent
 
-    const rawOutput = output as any;
+    const rawOutput = output as Record<string, string>;
 
     // Fallback: Check if the model used a different key like "code" or "result"
     const finalCode =

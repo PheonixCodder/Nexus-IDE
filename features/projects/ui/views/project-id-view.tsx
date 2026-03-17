@@ -8,6 +8,8 @@ import { FileExplorer } from "../components/file-explorer";
 import { ExportPopover } from "../components/export-popover";
 import { EditorView } from "@/features/editor/ui/views/editor-view";
 import { PreviewView } from "./preview-view";
+import { useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
 
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 800;

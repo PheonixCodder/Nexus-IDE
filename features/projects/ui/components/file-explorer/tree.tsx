@@ -20,6 +20,7 @@ import { CreateInput } from "./create-input";
 import { RenameInput } from "./rename-input";
 import { TreeItemWrapper } from "./tree-item-wrapper";
 import { Doc, Id } from "@/convex/_generated/dataModel";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 
 export const Tree = ({
   item,
@@ -33,6 +34,22 @@ export const Tree = ({
   const [isOpen, setIsOpen] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [creating, setCreating] = useState<"file" | "folder" | null>(null);
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDragRef,
+  } = useDraggable({
+    id: item._id,
+  });
+  const { setNodeRef: setDropRef } = useDroppable({
+    id: item._id,
+  });
+
+  const setRef = (node: HTMLElement | null) => {
+    setDragRef(node);
+    if (item.type === "folder") setDropRef(node);
+  };
 
   const renameFile = useRenameFile({
     projectId,
@@ -115,6 +132,9 @@ export const Tree = ({
           closeTab(item._id);
           deleteFile({ id: item._id });
         }}
+        ref={setRef}
+        {...listeners}
+        {...attributes}
       >
         <FileIcon fileName={fileName} autoAssign className="size-4" />
         <span className="truncate text-sm">{fileName}</span>

@@ -160,3 +160,13 @@ export const useFolderContents = ({
     enabled ? { projectId, parentId } : "skip",
   );
 };
+
+
+export const useMoveFile = () => {
+  const mutation = useMutation(api.files.moveFile);
+
+  return (args: {
+    id: Id<"files">;
+    newParentId?: Id<"files">;
+  }) => mutation(args);
+};
