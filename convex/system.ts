@@ -1,6 +1,11 @@
 import { v } from "convex/values";
 
-import { mutation, query } from "./_generated/server";
+import { action, internalQuery, mutation, query } from "./_generated/server";
+import { inngest } from "../inngest/client";
+import { getQdrantClient } from "../lib/qdrant-client";
+import { api, internal } from "./_generated/api";
+import { internalMutation } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
 
 const validateInternalKey = (key: string) => {
   const internalKey = process.env.NEXUS_CONVEX_INTERNAL_KEY;
@@ -203,6 +208,16 @@ export const updateFile = mutation({
       updatedAt: Date.now(),
     });
 
+    // Emit event for re-indexing
+    try {
+      await inngest.send({
+        name: "file.updated",
+        data: { projectId: file.projectId, fileId: args.fileId },
+      });
+    } catch (e) {
+      console.error("Failed to send file.updated event:", e);
+    }
+
     return args.fileId;
   },
 });
@@ -242,6 +257,16 @@ export const createFile = mutation({
       parentId: args.parentId,
       updatedAt: Date.now(),
     });
+
+    // Emit event for indexing
+    try {
+      await inngest.send({
+        name: "file.updated",
+        data: { projectId: args.projectId, fileId },
+      });
+    } catch (e) {
+      console.error("Failed to send file.updated event:", e);
+    }
 
     return fileId;
   },
@@ -295,6 +320,16 @@ export const createFiles = mutation({
         updatedAt: Date.now(),
       });
 
+      // Emit event for indexing
+      try {
+        await inngest.send({
+          name: "file.updated",
+          data: { projectId: args.projectId, fileId },
+        });
+      } catch (e) {
+        console.error("Failed to send file.updated event:", e);
+      }
+
       results.push({ name: file.name, fileId });
     }
 
@@ -335,6 +370,16 @@ export const createFolder = mutation({
       parentId: args.parentId,
       updatedAt: Date.now(),
     });
+
+    // Emit event for indexing
+    try {
+      await inngest.send({
+        name: "file.updated",
+        data: { projectId: args.projectId, fileId },
+      });
+    } catch (e) {
+      console.error("Failed to send file.updated event:", e);
+    }
 
     return fileId;
   },
@@ -378,6 +423,16 @@ export const renameFile = mutation({
       name: args.newName,
       updatedAt: Date.now(),
     });
+
+    // Emit event for re-indexing (path changes)
+    try {
+      await inngest.send({
+        name: "file.updated",
+        data: { projectId: file.projectId, fileId: args.fileId },
+      });
+    } catch (e) {
+      console.error("Failed to send file.updated event:", e);
+    }
 
     return args.fileId;
   },
@@ -428,7 +483,19 @@ export const deleteFile = mutation({
       await ctx.db.delete(fileId);
     };
 
+    const projectIdForEvent = file.projectId; // Capture before deletion
+
     await deleteRecursive(args.fileId);
+
+    // Emit event for cleanup from index
+    try {
+      await inngest.send({
+        name: "file.deleted",
+        data: { projectId: projectIdForEvent, fileId: args.fileId },
+      });
+    } catch (e) {
+      console.error("Failed to send file.deleted event:", e);
+    }
 
     return args.fileId;
   },
@@ -504,6 +571,16 @@ export const createBinaryFile = mutation({
       parentId: args.parentId,
       updatedAt: Date.now(),
     });
+
+    // Emit event for indexing (binary files may need special handling)
+    try {
+      await inngest.send({
+        name: "file.updated",
+        data: { projectId: args.projectId, fileId },
+      });
+    } catch (e) {
+      console.error("Failed to send file.updated event:", e);
+    }
 
     return fileId;
   },
@@ -601,30 +678,412 @@ export const createProject = mutation({
   },
 });
 
-export const createProjectWithConversation = mutation({
+export const createProjectWithConversation = action({
   args: {
     internalKey: v.string(),
     projectName: v.string(),
     conversationTitle: v.string(),
     ownerId: v.string(),
   },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    projectId: Id<"projects">;
+    conversationId: Id<"conversations">;
+  }> => {
+    // Perform your side-effect logic (validation)
+    validateInternalKey(args.internalKey);
+
+    // Call the mutation to perform the DB writes
+    const result = await ctx.runMutation(
+      api.projects.createProjectAndConversationInternal,
+      {
+        projectName: args.projectName,
+        conversationTitle: args.conversationTitle,
+        ownerId: args.ownerId,
+      },
+    );
+
+    return result;
+  },
+});
+
+export const createChunk = mutation({
+  args: {
+    projectId: v.id("projects"),
+    fileId: v.id("files"),
+    path: v.string(),
+    content: v.string(),
+    startLine: v.number(),
+    endLine: v.number(),
+    hash: v.string(),
+    vectorId: v.string(),
+    symbolName: v.optional(v.string()),
+    symbolType: v.optional(
+      v.union(
+        v.literal("function"),
+        v.literal("class"),
+        v.literal("component"),
+        v.literal("hook"),
+        v.literal("method"),
+        v.literal("variable"),
+      ),
+    ),
+  },
+
+  handler: async (ctx, args) => {
+    return ctx.db.insert("codeChunks", {
+      ...args,
+      exported: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const createGraphNode = mutation({
+  args: {
+    projectId: v.id("projects"),
+    fileId: v.id("files"),
+    path: v.string(),
+    name: v.string(),
+    type: v.optional(
+      v.union(
+        v.literal("function"),
+        v.literal("class"),
+        v.literal("component"),
+        v.literal("hook"),
+        v.literal("method"),
+        v.literal("interface"),
+        v.literal("type"),
+        v.literal("variable"),
+      ),
+    ),
+    signature: v.optional(v.string()),
+    exported: v.boolean(),
+    startLine: v.number(),
+    endLine: v.number(),
+  },
+
+  handler: async (ctx, args) => {
+    return ctx.db.insert("codeGraphNodes", {
+      ...args,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const createGraphEdge = mutation({
+  args: {
+    projectId: v.id("projects"),
+    fromNodeId: v.id("codeGraphNodes"),
+    toNodeId: v.id("codeGraphNodes"),
+    relation: v.union(
+      v.literal("calls"),
+      v.literal("imports"),
+      v.literal("renders"),
+      v.literal("uses"),
+      v.literal("extends"),
+      v.literal("implements"),
+      v.literal("dependsOn"),
+    ),
+  },
+
+  handler: async (ctx, args) => {
+    return ctx.db.insert("codeGraphEdges", {
+      ...args,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const getChunkByHash = query({
+  args: {
+    fileId: v.id("files"),
+    hash: v.string(),
+  },
+
+  handler: async (ctx, { fileId, hash }) => {
+    const chunk = await ctx.db
+      .query("codeChunks")
+      .withIndex("by_file", (q) => q.eq("fileId", fileId))
+      .filter((q) => q.eq(q.field("hash"), hash))
+      .first();
+
+    return chunk ?? null;
+  },
+});
+
+export const getChunkForDeletion = internalQuery({
+  args: { chunkId: v.id("codeChunks") },
+  handler: async (ctx, args) => {
+    const chunk = await ctx.db.get(args.chunkId);
+    if (!chunk) return null;
+    return { vectorId: chunk.vectorId }; // Return the ID stored in the DB
+  },
+});
+
+export const deleteChunkAndVector = action({
+  args: { chunkId: v.id("codeChunks"), internalKey: v.string() },
+  handler: async (ctx, args) => {
+    validateInternalKey(args.internalKey);
+    // 1. Fetch the vectorId from the DB using the internal query
+    const chunk = await ctx.runQuery(internal.system.getChunkForDeletion, {
+      chunkId: args.chunkId,
+    });
+
+    if (!chunk) throw new Error("Chunk not found in database");
+
+    // 2. Delete from Qdrant using the vectorId we just fetched
+    try {
+      const qdrant = getQdrantClient();
+
+      await qdrant.delete("codebase", {
+        points: [chunk.vectorId],
+      });
+    } catch (e) {
+      console.error("Qdrant deletion failed:", e);
+      // Decide if you want to throw here or continue to DB deletion
+    }
+
+    // 3. Finally, delete the record from Convex
+    await ctx.runMutation(internal.system.deleteChunkRecord, {
+      chunkId: args.chunkId,
+    });
+
+    return { success: true };
+  },
+});
+
+export const deleteChunkRecord = internalMutation({
+  args: { chunkId: v.id("codeChunks") },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.chunkId);
+  },
+});
+
+// Get all graph nodes for a file
+export const getNodesByFile = query({
+  args: {
+    internalKey: v.string(),
+    fileId: v.id("files"),
+  },
   handler: async (ctx, args) => {
     validateInternalKey(args.internalKey);
 
-    const now = Date.now();
+    return await ctx.db
+      .query("codeGraphNodes")
+      .withIndex("by_file", (q) => q.eq("fileId", args.fileId))
+      .collect();
+  },
+});
 
-    const projectId = await ctx.db.insert("projects", {
-      name: args.projectName,
-      ownerId: args.ownerId,
-      updatedAt: now,
-    });
+// Get edges by from node (for cleanup)
+export const getEdgesByNode = query({
+  args: {
+    internalKey: v.string(),
+    nodeId: v.id("codeGraphNodes"),
+  },
+  handler: async (ctx, args) => {
+    validateInternalKey(args.internalKey);
 
-    const conversationId = await ctx.db.insert("conversations", {
-      projectId,
-      title: args.conversationTitle,
-      updatedAt: now,
-    });
+    return await ctx.db
+      .query("codeGraphEdges")
+      .withIndex("by_from", (q) => q.eq("fromNodeId", args.nodeId))
+      .collect();
+  },
+});
 
-    return { projectId, conversationId };
+// Delete graph edge
+export const deleteGraphEdge = mutation({
+  args: {
+    internalKey: v.string(),
+    edgeId: v.id("codeGraphEdges"),
+  },
+  handler: async (ctx, args) => {
+    validateInternalKey(args.internalKey);
+    await ctx.db.delete(args.edgeId);
+  },
+});
+
+// Delete graph node
+export const deleteGraphNode = mutation({
+  args: {
+    internalKey: v.string(),
+    nodeId: v.id("codeGraphNodes"),
+  },
+  handler: async (ctx, args) => {
+    validateInternalKey(args.internalKey);
+    await ctx.db.delete(args.nodeId);
+  },
+});
+
+// ========== GRAPH QUERIES FOR HYBRID RETRIEVAL ==========
+
+// Get graph nodes by symbol name (for symbol lookup)
+export const getNodesBySymbol = query({
+  args: {
+    internalKey: v.string(),
+    projectId: v.id("projects"),
+    symbolName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    validateInternalKey(args.internalKey);
+
+    // Search for exact matches first using the by_project_name index
+    const exactMatches = await ctx.db
+      .query("codeGraphNodes")
+      .withIndex("by_project_name", (q) =>
+        q.eq("projectId", args.projectId).eq("name", args.symbolName),
+      )
+      .collect();
+
+    // If no exact matches, try partial matches (prefix) - Convex doesn't support LIKE,
+    // so we'll also check by symbol field if it's populated
+    // For now, return exact matches
+    return exactMatches;
+  },
+});
+
+// Get graph edges by target node (incoming edges)
+export const getEdgesByTarget = query({
+  args: {
+    internalKey: v.string(),
+    nodeId: v.id("codeGraphNodes"),
+  },
+  handler: async (ctx, args) => {
+    validateInternalKey(args.internalKey);
+
+    return await ctx.db
+      .query("codeGraphEdges")
+      .withIndex("by_to", (q) => q.eq("toNodeId", args.nodeId))
+      .collect();
+  },
+});
+
+// Get graph edges by project and from node (more efficient than getEdgesByNode for specific node)
+export const getOutgoingEdges = query({
+  args: {
+    internalKey: v.string(),
+    projectId: v.id("projects"),
+    fromNodeId: v.id("codeGraphNodes"),
+  },
+  handler: async (ctx, args) => {
+    validateInternalKey(args.internalKey);
+
+    return await ctx.db
+      .query("codeGraphEdges")
+      .withIndex("by_project_from", (q) =>
+        q.eq("projectId", args.projectId).eq("fromNodeId", args.fromNodeId),
+      )
+      .collect();
+  },
+});
+
+// Get chunks for a file (used in graph expansion)
+export const getChunksByFile = query({
+  args: {
+    internalKey: v.string(),
+    fileId: v.id("files"),
+  },
+  handler: async (ctx, args) => {
+    validateInternalKey(args.internalKey);
+
+    return await ctx.db
+      .query("codeChunks")
+      .withIndex("by_file", (q) => q.eq("fileId", args.fileId))
+      .collect();
+  },
+});
+
+// Get graph node by ID
+export const getNodeById = query({
+  args: {
+    internalKey: v.string(),
+    nodeId: v.id("codeGraphNodes"),
+  },
+  handler: async (ctx, args) => {
+    validateInternalKey(args.internalKey);
+    return await ctx.db.get(args.nodeId);
+  },
+});
+
+// Get all project chunks (for deduplication)
+export const getChunksByProject = query({
+  args: {
+    internalKey: v.string(),
+    projectId: v.id("projects"),
+  },
+  handler: async (ctx, args) => {
+    validateInternalKey(args.internalKey);
+
+    return await ctx.db
+      .query("codeChunks")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .collect();
+  },
+});
+
+export const getEdgesForNode = query({
+  args: {
+    internalKey: v.string(),
+    nodeId: v.id("codeGraphNodes"),
+  },
+
+  handler: async (ctx, args) => {
+    if (args.internalKey !== process.env.NEXUS_CONVEX_INTERNAL_KEY) {
+      throw new Error("Unauthorized");
+    }
+
+    // outgoing edges
+    const outgoing = await ctx.db
+      .query("codeGraphEdges")
+      .withIndex("by_from", (q) => q.eq("fromNodeId", args.nodeId))
+      .collect();
+
+    // incoming edges
+    const incoming = await ctx.db
+      .query("codeGraphEdges")
+      .withIndex("by_to", (q) => q.eq("toNodeId", args.nodeId))
+      .collect();
+
+    return [...outgoing, ...incoming];
+  },
+});
+
+export const getChunksByNodeIds = query({
+  args: {
+    internalKey: v.string(),
+    nodeIds: v.array(v.id("codeGraphNodes")),
+  },
+
+  handler: async (ctx, args) => {
+    if (args.internalKey !== process.env.NEXUS_CONVEX_INTERNAL_KEY) {
+      throw new Error("Unauthorized");
+    }
+
+    if (!args.nodeIds.length) return [];
+
+    // fetch nodes
+    const nodes = await Promise.all(args.nodeIds.map((id) => ctx.db.get(id)));
+
+    const validNodes = nodes.filter(Boolean);
+
+    const fileIds = [...new Set(validNodes.map((n) => n!.fileId))];
+
+    if (!fileIds.length) return [];
+
+    // fetch chunks for those files
+    const chunkResults = await Promise.all(
+      fileIds.map((fileId) =>
+        ctx.db
+          .query("codeChunks")
+          .withIndex("by_file", (q) => q.eq("fileId", fileId))
+          .collect(),
+      ),
+    );
+
+    return chunkResults.flat();
   },
 });

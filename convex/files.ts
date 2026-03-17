@@ -385,3 +385,16 @@ export const updateFile = mutation({
     });
   },
 });
+
+export const moveFile = mutation({
+  args: {
+    id: v.id("files"),
+    newParentId: v.optional(v.id("files")),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, {
+      parentId: args.newParentId,
+      updatedAt: Date.now(),
+    });
+  },
+});
